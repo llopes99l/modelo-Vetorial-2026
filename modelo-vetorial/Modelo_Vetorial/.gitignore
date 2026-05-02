@@ -1,0 +1,11 @@
+# Índices gerados automaticamente
+storage/
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Ambiente virtual
+venv/
+.env

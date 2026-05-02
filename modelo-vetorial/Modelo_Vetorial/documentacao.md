@@ -1,85 +1,152 @@
 # Documentação do Sistema de Busca Vetorial
 
-Esta documentação descreve o sistema de recuperação de informação vetorial composto pelos scripts Python fornecidos. O sistema utiliza a técnica de **TF-IDF** (*Term Frequency-Inverse Document Frequency*) e a **Similaridade do Cosseno** para realizar buscas textuais otimizadas.
+Sistema de recuperação de informação baseado no **Modelo Vetorial**, utilizando **TF-IDF** e **Similaridade do Cosseno**. Disponível em duas interfaces: web (Flask) e linha de comando (CLI).
 
 ---
 
-## 1. Visão Geral da Arquitetura
+## 1. Arquitetura
 
-O sistema está dividido em componentes de lógica central (TADs) e scripts de execução (*pipelines*). A principal otimização implementada é o **pré-cálculo da norma dos documentos** durante a indexação, o que reduz drasticamente o custo computacional no momento da busca.
-
----
-
-## 2. Componentes de Lógica Central (`src/`)
-
-### `processador.py`
-Responsável pelo tratamento inicial dos textos.
-* **Classe `ProcessadorTexto`**:
-    * **Atributo `stopwords`**: Conjunto de palavras irrelevantes (artigos, preposições) que são descartadas.
-    * **Método `limpar(texto)`**: Realiza a normalização Unicode (remove acentos), converte para minúsculas e remove pontuação e *stopwords*, retornando uma lista de tokens válidos.
-
-### `indice.py`
-Gera a estrutura de dados do índice invertido e os metadados dos documentos.
-* **Classe `IndiceInvertido`**:
-    * **Atributos**: Mantém o índice invertido (termos e suas frequências por documento) e o dicionário `docs_info`.
-    * **Método `adicionar_documento(id_doc, tokens)`**: Contabiliza as frequências brutas (TF) e identifica o termo mais frequente de cada documento.
-    * **Método `salvar(caminho)`**: Calcula o IDF de cada termo e a **norma vetorial** de cada documento, consolidando tudo num arquivo JSON.
-    * **Método `carregar(caminho)`**: Reconstrói o estado do índice a partir do arquivo JSON salvo.
-
-### `recuperador.py`
-Implementa o modelo vetorial para cálculo de relevância.
-* **Classe `RecuperadorVetorial`**:
-    * **Método `_calcular_peso(tf, tf_max, df)`**: Calcula o peso normalizado de um termo usando a fórmula: $w = (0.5 + 0.5 \times \frac{tf}{tf\_max}) \times \log_{10}(\frac{N}{df})$.
-    * **Método `gerar_vetor_query(query)`**: Transforma a consulta do utilizador num vetor de pesos.
-    * **Método `calcular_similaridade(id_doc, v_q, norma_q)`**: Calcula o cosseno entre o vetor da consulta e o vetor do documento, utilizando a norma pré-calculada para otimização.
+```
+Modelo_Vetorial/
+├── api.py                  # Servidor web Flask (interface web)
+├── templates/
+│   └── index.html          # Frontend da interface web
+├── src/
+│   ├── processador.py      # Pré-processamento de texto
+│   ├── indice.py           # TAD: Índice Invertido
+│   ├── recuperador.py      # TAD: Modelo Vetorial e Similaridade
+│   ├── indexador.py        # Pipeline de indexação
+│   └── buscador.py         # Interface CLI de busca
+├── data/                   # Coleção padrão de documentos (.txt)
+├── collections/            # Coleções adicionais (cada subpasta é uma coleção)
+└── storage/                # Índices gerados automaticamente (JSON)
+```
 
 ---
 
-## 3. Scripts de Execução (Pipelines)
+## 2. Componentes (`src/`)
 
-### `indexador.py`
-Estes scripts automatizam a criação do banco de dados de busca.
-* Lêem todos os ficheiros `.txt` presentes na pasta `../data`.
-* Utilizam o `ProcessadorTexto` para limpar o conteúdo e o `IndiceInvertido` para gerar as estatísticas.
-* Gravam o resultado final em `../storage/indice_db.json`.
+### `processador.py` — Pré-processamento
+**Classe `ProcessadorTexto`**
+- Remove acentos via normalização Unicode (NFD)
+- Converte para minúsculas e extrai tokens alfanuméricos
+- Filtra stopwords do português (artigos, preposições, conjunções, pronomes, verbos auxiliares)
 
-### `buscador.py`
-Interface de interação com o utilizador.
-* **Automatização**: Verifica se o índice existe; caso contrário, invoca o indexador automaticamente.
-* **Loop de Busca**: Permite realizar múltiplas consultas sem reiniciar o programa.
-* **Processamento**:
-    1. Gera o vetor da consulta.
-    2. Identifica documentos candidatos (que contêm pelo menos um termo da consulta).
-    3. Calcula a similaridade e exibe um ranking dos 10 melhores resultados ordenados por *score*.
+### `indice.py` — TAD Índice Invertido
+**Classe `IndiceInvertido`**
+
+Estrutura interna:
+```json
+{
+  "total_docs": 5,
+  "indice": {
+    "cavalo": { "df": 2, "postings": { "fazenda.txt": 3, "xadrez.txt": 1 } }
+  },
+  "docs_info": {
+    "fazenda.txt": { "max_tf": 3, "norma": 0.847, "termos": ["cavalo", ...] }
+  }
+}
+```
+
+Métodos:
+- `adicionar_documento(id_doc, tokens)` — contabiliza frequências brutas (TF) por documento
+- `salvar(caminho)` — calcula DF, IDF, pesos TF-IDF e norma vetorial de cada doc; persiste em JSON
+- `carregar(caminho)` — reconstrói o índice a partir do JSON
+
+### `recuperador.py` — TAD Modelo Vetorial
+**Classe `RecuperadorVetorial`**
+
+Fórmula de peso aplicada a documentos e consultas:
+
+$$w = \left(0.5 + 0.5 \times \frac{tf}{tf_{max}}\right) \times \log_{10}\left(\frac{N}{df}\right)$$
+
+Métodos:
+- `gerar_vetor_query(query)` — processa e vetoriza a consulta
+- `calcular_similaridade(id_doc, v_q, norma_q)` — similaridade do cosseno usando norma pré-calculada
+
+### `indexador.py` — Pipeline de Indexação
+Função `executar(dir_docs, db_path)`:
+- Lê todos os `.txt` da pasta indicada
+- Processa cada documento via `ProcessadorTexto`
+- Constrói e salva o `IndiceInvertido`
+- Aceita caminhos parametrizados para suportar múltiplas coleções
+
+### `buscador.py` — Interface CLI
+- Lista coleções disponíveis e permite escolha interativa
+- Indexa automaticamente se o índice não existir
+- Loop de consultas com exibição do ranking (top 10 por score)
+
+---
+
+## 3. Interface Web (`api.py` + `templates/index.html`)
+
+Servidor Flask com três endpoints:
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/` | Serve o frontend |
+| GET | `/api/collections` | Lista coleções disponíveis |
+| POST | `/api/search` | Executa busca; retorna ranking com snippet e score |
+| POST | `/api/reindex` | Força reindexação de uma coleção |
+
+O frontend exibe:
+- Seletor de coleção
+- Campo de busca com resultado em tempo real
+- Ranking com score, barra de relevância e trecho do documento com termos destacados
 
 ---
 
 ## 4. Fluxo de Dados
 
-1. **Entrada**: Ficheiros de texto bruto (`.txt`).
-2. **Indexação (Offline)**: O `indexador.py` processa os textos e gera o `indice_db.json` com normas e pesos pré-calculados.
-3. **Consulta (Online)**: O utilizador insere uma frase no `buscador.py`.
-4. **Recuperação**: O sistema compara o vetor da frase com os vetores dos documentos via similaridade do cosseno.
-5. **Saída**: Ranking de documentos relevantes com os respetivos *scores*.
+```
+Arquivos .txt
+     │
+     ▼
+ProcessadorTexto.limpar()       ← normalização + remoção de stopwords
+     │
+     ▼
+IndiceInvertido.adicionar_documento()   ← contagem de TF
+     │
+     ▼
+IndiceInvertido.salvar()        ← cálculo de DF, IDF, pesos e normas → JSON
+     │
+     ▼  (momento da consulta)
+RecuperadorVetorial.gerar_vetor_query()     ← vetoriza a query
+     │
+     ▼
+RecuperadorVetorial.calcular_similaridade() ← cosseno por candidato
+     │
+     ▼
+Ranking ordenado por similaridade decrescente
+```
 
 ---
 
-## 5. Execução
+## 5. Como Executar
 
-Coloque todos os documentos que você deseja indexar (em formato .txt) dentro da pasta data/.
+### Interface Web (recomendado)
 
-Você pode iniciar o programa diretamente pelo buscador. O sistema foi projetado para ser inteligente: se ele não encontrar um índice pronto, ele chamará o indexador por conta própria.
+```bash
+cd Modelo_Vetorial
+python api.py
+```
 
-No terminal, execute:
+Acesse **http://localhost:5000** no navegador.  
+O índice é gerado automaticamente na primeira busca.
 
+### Interface CLI
+
+```bash
+cd Modelo_Vetorial/src
 python buscador.py
+```
 
-## 6. Realizando Consultas
+---
 
-O programa abrirá um prompt perguntando: 🔍 O que deseja buscar?.
+## 6. Adicionando Coleções
 
-Digite sua frase ou palavra-chave e pressione Enter.
+Coloque arquivos `.txt` em:
+- `data/` — coleção padrão
+- `collections/<nome>/` — coleções adicionais (aparecem automaticamente no seletor)
 
-O sistema exibirá um ranking dos documentos mais relevantes com seus respectivos scores de similaridade.
-
-Para encerrar o programa, digite sair, exit ou 0.
+Após adicionar ou alterar documentos, clique em **"Reindexar coleção"** na interface web ou reinicie o `buscador.py`.
