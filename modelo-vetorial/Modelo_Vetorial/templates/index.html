@@ -266,6 +266,38 @@
     .btn-ghost:hover { border-color: var(--border-hov); color: var(--text-sm); background: var(--panel); }
     .btn-ghost:disabled { opacity: .38; cursor: not-allowed; }
 
+    input[type="file"] {
+      width: 100%;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.78rem;
+    }
+    input[type="file"]::file-selector-button {
+      margin-right: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      color: var(--text-sm);
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    input[type="file"]::file-selector-button:hover {
+      border-color: var(--border-hov);
+      background: var(--panel-hov);
+    }
+    .upload-status {
+      min-height: 16px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      line-height: 1.4;
+    }
+    .upload-status.ok { color: #86efac; }
+    .upload-status.error { color: #fca5a5; }
+
     /* Info card */
     .info-card {
       background: var(--panel);
@@ -573,6 +605,13 @@
 
         <button class="btn-ghost" id="reindex-btn">↺ Reindexar coleção</button>
 
+        <div class="field-group">
+          <span class="field-label">Novo arquivo .txt</span>
+          <input type="file" id="txt-file-input" accept=".txt,text/plain" />
+          <button class="btn-ghost" id="upload-btn">Inserir arquivo</button>
+          <p class="upload-status" id="upload-status"></p>
+        </div>
+
       </div>
 
       <!-- Pipeline info -->
@@ -604,15 +643,29 @@
   const queryInput  = document.getElementById('query-input');
   const searchBtn   = document.getElementById('search-btn');
   const reindexBtn  = document.getElementById('reindex-btn');
+  const txtFileInput = document.getElementById('txt-file-input');
+  const uploadBtn   = document.getElementById('upload-btn');
+  const uploadStatus = document.getElementById('upload-status');
   const resultsArea = document.getElementById('results-area');
 
   // ── Helpers ──────────────────────────────────────────────
   const docName = f => f.replace(/\.txt$/i, '');
 
+  function escapeHtml(text = '') {
+    return text.replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
+  }
+
   function highlight(text, terms) {
-    if (!terms || !terms.length) return text;
+    const safeText = escapeHtml(text);
+    if (!terms || !terms.length) return safeText;
     const pattern = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    return text.replace(new RegExp(pattern, 'gi'), m => `<mark>${m}</mark>`);
+    return safeText.replace(new RegExp(pattern, 'gi'), m => `<mark>${m}</mark>`);
   }
 
   function rankClass(i) {
@@ -671,7 +724,7 @@
           </div>
           <div class="doc-col">
             <div class="doc-header">
-              <span class="doc-name">${docName(r.doc)}</span>
+              <span class="doc-name">${escapeHtml(docName(r.doc))}</span>
               <span class="score-badge">${r.score.toFixed(4)}</span>
             </div>
             ${snippet ? `<p class="doc-snippet">${snippet}</p>` : ''}
@@ -686,7 +739,7 @@
   }
 
   // ── API calls ─────────────────────────────────────────────
-  async function loadCollections() {
+  async function loadCollections(selectedPath = colSelect.value) {
     const res  = await fetch('/api/collections');
     const list = await res.json();
     colSelect.innerHTML = '';
@@ -700,6 +753,9 @@
       opt.textContent = `${c.nome}  (${c.total} doc${c.total > 1 ? 's' : ''})`;
       colSelect.appendChild(opt);
     });
+    if (selectedPath && [...colSelect.options].some(opt => opt.value === selectedPath)) {
+      colSelect.value = selectedPath;
+    }
   }
 
   async function doSearch() {
@@ -743,10 +799,50 @@
     }
   }
 
+  function setUploadStatus(message, type = '') {
+    uploadStatus.textContent = message;
+    uploadStatus.className = `upload-status ${type}`.trim();
+  }
+
+  async function doUpload() {
+    const path = colSelect.value;
+    const file = txtFileInput.files[0];
+    if (!path) return setUploadStatus('Selecione uma coleção.', 'error');
+    if (!file) return setUploadStatus('Selecione um arquivo .txt.', 'error');
+    if (!file.name.toLowerCase().endsWith('.txt')) {
+      return setUploadStatus('Apenas arquivos .txt são permitidos.', 'error');
+    }
+
+    const form = new FormData();
+    form.append('collection_path', path);
+    form.append('file', file);
+
+    uploadBtn.disabled = true;
+    reindexBtn.disabled = true;
+    setUploadStatus('Inserindo e reindexando...');
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Não foi possível inserir o arquivo.');
+
+      txtFileInput.value = '';
+      setUploadStatus(`${data.filename} inserido com sucesso.`, 'ok');
+      await loadCollections(path);
+    } catch (err) {
+      setUploadStatus(err.message, 'error');
+    } finally {
+      uploadBtn.disabled = false;
+      reindexBtn.disabled = false;
+    }
+  }
+
   // ── Events ────────────────────────────────────────────────
   searchBtn.addEventListener('click', doSearch);
   queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
   reindexBtn.addEventListener('click', doReindex);
+  uploadBtn.addEventListener('click', doUpload);
+  txtFileInput.addEventListener('change', () => setUploadStatus(''));
 
   // ── Init ──────────────────────────────────────────────────
   showEmpty('Digite uma consulta ao lado para começar.', '◈');

@@ -56,9 +56,13 @@ Métodos:
 ### `recuperador.py` — TAD Modelo Vetorial
 **Classe `RecuperadorVetorial`**
 
-Fórmula de peso aplicada a documentos e consultas:
+Fórmula de peso aplicada aos documentos:
 
-$$w = \left(0.5 + 0.5 \times \frac{tf}{tf_{max}}\right) \times \log_{10}\left(\frac{N}{df}\right)$$
+$$w_d = \frac{tf}{tf_{max}} \times \log_{10}\left(\frac{N}{df}\right)$$
+
+Fórmula de peso aplicada às consultas:
+
+$$w_q = \left(0.5 + 0.5 \times \frac{tf}{tf_{max}}\right) \times \log_{10}\left(\frac{N}{df}\right)$$
 
 Métodos:
 - `gerar_vetor_query(query)` — processa e vetoriza a consulta
@@ -88,9 +92,11 @@ Servidor Flask com três endpoints:
 | GET | `/api/collections` | Lista coleções disponíveis |
 | POST | `/api/search` | Executa busca; retorna ranking com snippet e score |
 | POST | `/api/reindex` | Força reindexação de uma coleção |
+| POST | `/api/upload` | Insere um novo arquivo `.txt` na coleção selecionada e reindexa automaticamente |
 
 O frontend exibe:
 - Seletor de coleção
+- Upload de novos arquivos `.txt`
 - Campo de busca com resultado em tempo real
 - Ranking com score, barra de relevância e trecho do documento com termos destacados
 
@@ -149,4 +155,6 @@ Coloque arquivos `.txt` em:
 - `data/` — coleção padrão
 - `collections/<nome>/` — coleções adicionais (aparecem automaticamente no seletor)
 
-Após adicionar ou alterar documentos, clique em **"Reindexar coleção"** na interfac
+Após adicionar ou alterar documentos manualmente, clique em **"Reindexar coleção"** na interface web.
+
+Também é possível inserir novos `.txt` diretamente pela interface web usando o campo **"Novo arquivo .txt"**. O sistema salva o arquivo na coleção selecionada e reindexa automaticamente.

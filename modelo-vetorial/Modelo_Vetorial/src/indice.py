@@ -43,7 +43,7 @@ class IndiceInvertido:
                 df = self.indice[termo]["df"]
                 # IDF calculado uma única vez por termo
                 idf = math.log10(self.total_docs / df)
-                w = (0.5 + 0.5 * (tf / tf_max)) * idf
+                w = (tf / tf_max) * idf
                 soma_quadrados += w ** 2
             
             self.docs_info[id_doc] = {

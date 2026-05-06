@@ -17,12 +17,46 @@ from recuperador import RecuperadorVetorial
 import indexador
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
 DEFAULT_DIR = os.path.join(BASE_DIR, 'data')
 
 _cache: dict = {}
+
+
+def _collection_paths() -> set:
+    paths = {os.path.abspath(DEFAULT_DIR)}
+    cols_dir = os.path.join(BASE_DIR, 'collections')
+    if os.path.isdir(cols_dir):
+        for item in os.listdir(cols_dir):
+            full = os.path.join(cols_dir, item)
+            if os.path.isdir(full):
+                paths.add(os.path.abspath(full))
+    return paths
+
+
+def _resolve_collection_path(dir_col: str) -> str | None:
+    abs_path = os.path.abspath(dir_col or DEFAULT_DIR)
+    return abs_path if abs_path in _collection_paths() else None
+
+
+def _is_txt_file(filename: str) -> bool:
+    return os.path.splitext(filename)[1].lower() == '.txt'
+
+
+def _txt_docs(dir_col: str) -> list:
+    if not os.path.isdir(dir_col):
+        return []
+    return sorted(f for f in os.listdir(dir_col) if _is_txt_file(f))
+
+
+def _safe_original_filename(filename: str) -> str:
+    filename = re.split(r'[/\\]', filename)[-1]
+    filename = unicodedata.normalize('NFC', filename).strip()
+    filename = ''.join(c for c in filename if c.isprintable())
+    return filename[:180]
 
 
 def _db_path(dir_col: str) -> str:
@@ -32,13 +66,25 @@ def _db_path(dir_col: str) -> str:
 
 def _get_idx(dir_col: str) -> IndiceInvertido:
     path = _db_path(dir_col)
-    if path not in _cache:
-        if not os.path.exists(path):
-            indexador.executar(dir_col, path)
+    current_docs = set(_txt_docs(dir_col))
+    cached = _cache.get(path)
+
+    if cached and set(cached.docs_info.keys()) == current_docs:
+        return cached
+
+    if not os.path.exists(path):
+        indexador.executar(dir_col, path)
+
+    idx = IndiceInvertido()
+    idx.carregar(path)
+
+    if set(idx.docs_info.keys()) != current_docs:
+        indexador.executar(dir_col, path)
         idx = IndiceInvertido()
         idx.carregar(path)
-        _cache[path] = idx
-    return _cache[path]
+
+    _cache[path] = idx
+    return idx
 
 
 def _normalize(text: str) -> str:
@@ -68,7 +114,7 @@ def _get_snippet(dir_col: str, doc_name: str, query_terms: list, max_len: int = 
 def _listar_colecoes() -> list:
     result = []
     if os.path.isdir(DEFAULT_DIR):
-        docs = [f for f in os.listdir(DEFAULT_DIR) if f.endswith('.txt')]
+        docs = _txt_docs(DEFAULT_DIR)
         if docs:
             result.append({'nome': 'data', 'path': DEFAULT_DIR, 'total': len(docs)})
     cols_dir = os.path.join(BASE_DIR, 'collections')
@@ -76,7 +122,7 @@ def _listar_colecoes() -> list:
         for item in sorted(os.listdir(cols_dir)):
             full = os.path.join(cols_dir, item)
             if os.path.isdir(full):
-                docs = [f for f in os.listdir(full) if f.endswith('.txt')]
+                docs = _txt_docs(full)
                 if docs:
                     result.append({'nome': item, 'path': full, 'total': len(docs)})
     return result
@@ -140,10 +186,41 @@ def search():
 def reindex():
     body    = request.json or {}
     dir_col = body.get('collection_path', DEFAULT_DIR)
+    dir_col = _resolve_collection_path(dir_col)
+    if not dir_col:
+        return jsonify({'error': 'Coleção inválida'}), 400
+
     path    = _db_path(dir_col)
     _cache.pop(path, None)
     indexador.executar(dir_col, path)
     return jsonify({'ok': True})
+
+
+@app.route('/api/upload', methods=['POST'])
+def upload_txt():
+    dir_col = _resolve_collection_path(request.form.get('collection_path', DEFAULT_DIR))
+    if not dir_col:
+        return jsonify({'error': 'Coleção inválida'}), 400
+
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'error': 'Selecione um arquivo .txt'}), 400
+
+    filename = _safe_original_filename(file.filename)
+    if not filename or not _is_txt_file(filename):
+        return jsonify({'error': 'Apenas arquivos .txt são permitidos'}), 400
+
+    target = os.path.join(dir_col, filename)
+    if os.path.exists(target):
+        return jsonify({'error': f'O arquivo {filename} já existe nessa coleção'}), 409
+
+    file.save(target)
+
+    path = _db_path(dir_col)
+    _cache.pop(path, None)
+    indexador.executar(dir_col, path)
+
+    return jsonify({'ok': True, 'filename': filename})
 
 
 if __name__ == '__main__':
