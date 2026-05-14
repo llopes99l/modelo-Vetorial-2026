@@ -4,6 +4,7 @@ import math
 import time
 import re
 import unicodedata
+import shutil
 from flask import Flask, jsonify, request, render_template
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -22,6 +23,7 @@ app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 STORAGE_DIR = os.path.join(BASE_DIR, 'storage')
 DEFAULT_DIR = os.path.join(BASE_DIR, 'data')
+TRASH_DIR = os.path.join(BASE_DIR, 'trash')
 
 _cache: dict = {}
 
@@ -50,6 +52,11 @@ def _txt_docs(dir_col: str) -> list:
     if not os.path.isdir(dir_col):
         return []
     return sorted(f for f in os.listdir(dir_col) if _is_txt_file(f))
+
+def _trash_docs() -> list:
+    if not os.path.isdir(TRASH_DIR):
+        return []
+    return sorted(f for f in os.listdir(TRASH_DIR) if _is_txt_file(f))
 
 
 def _safe_original_filename(filename: str) -> str:
@@ -110,23 +117,33 @@ def _get_snippet(dir_col: str, doc_name: str, query_terms: list, max_len: int = 
     except Exception:
         return ''
 
-
 def _listar_colecoes() -> list:
     result = []
+
     if os.path.isdir(DEFAULT_DIR):
         docs = _txt_docs(DEFAULT_DIR)
-        if docs:
-            result.append({'nome': 'data', 'path': DEFAULT_DIR, 'total': len(docs)})
+        result.append({
+            'nome': 'data',
+            'path': DEFAULT_DIR,
+            'total': len(docs)
+        })
+
     cols_dir = os.path.join(BASE_DIR, 'collections')
+
     if os.path.isdir(cols_dir):
         for item in sorted(os.listdir(cols_dir)):
             full = os.path.join(cols_dir, item)
+
             if os.path.isdir(full):
                 docs = _txt_docs(full)
-                if docs:
-                    result.append({'nome': item, 'path': full, 'total': len(docs)})
-    return result
 
+                result.append({
+                    'nome': item,
+                    'path': full,
+                    'total': len(docs)
+                })
+
+    return result
 
 @app.route('/')
 def index():
@@ -136,6 +153,73 @@ def index():
 @app.route('/api/collections')
 def get_collections():
     return jsonify(_listar_colecoes())
+
+@app.route('/api/files')
+def get_files():
+    dir_col = request.args.get('collection_path', DEFAULT_DIR)
+    dir_col = _resolve_collection_path(dir_col)
+
+    if not dir_col:
+        return jsonify({'error': 'Coleção inválida'}), 400
+
+    return jsonify({
+        'files': _txt_docs(dir_col),
+        'trash': _trash_docs()
+    })
+
+@app.route('/api/delete', methods=['POST'])
+def delete_file():
+    body = request.json or {}
+
+    dir_col = _resolve_collection_path(body.get('collection_path', DEFAULT_DIR))
+    filename = body.get('filename', '')
+
+    if not dir_col:
+        return jsonify({'error': 'Coleção inválida'}), 400
+
+    if not _is_txt_file(filename):
+        return jsonify({'error': 'Arquivo inválido'}), 400
+
+    source = os.path.join(dir_col, filename)
+
+    if not os.path.exists(source):
+        return jsonify({'error': 'Arquivo não encontrado'}), 404
+
+    os.makedirs(TRASH_DIR, exist_ok=True)
+
+    target = os.path.join(TRASH_DIR, filename)
+
+    shutil.move(source, target)
+
+    path = _db_path(dir_col)
+    _cache.pop(path, None)
+    indexador.executar(dir_col, path)
+
+    return jsonify({'ok': True})
+
+@app.route('/api/restore', methods=['POST'])
+def restore_file():
+    body = request.json or {}
+
+    filename = body.get('filename', '')
+
+    if not _is_txt_file(filename):
+        return jsonify({'error': 'Arquivo inválido'}), 400
+
+    source = os.path.join(TRASH_DIR, filename)
+
+    if not os.path.exists(source):
+        return jsonify({'error': 'Arquivo não encontrado'}), 404
+
+    target = os.path.join(DEFAULT_DIR, filename)
+
+    shutil.move(source, target)
+
+    path = _db_path(DEFAULT_DIR)
+    _cache.pop(path, None)
+    indexador.executar(DEFAULT_DIR, path)
+
+    return jsonify({'ok': True})
 
 
 @app.route('/api/search', methods=['POST'])
