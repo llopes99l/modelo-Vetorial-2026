@@ -851,6 +851,7 @@
   </div>
 
   <script>
+    // Referências dos elementos da tela usados pelos eventos e renderizações.
     const colSelect = document.getElementById('col-select');
     const queryInput = document.getElementById('query-input');
     const searchBtn = document.getElementById('search-btn');
@@ -863,9 +864,11 @@
     const trashList = document.getElementById('trash-list');
 
     // ── Helpers ──────────────────────────────────────────────
+    // Remove a extensão .txt para mostrar nomes de documentos mais limpos.
     const docName = f => f.replace(/\.txt$/i, '');
 
     function escapeHtml(text = '') {
+      // Escapa caracteres especiais para evitar HTML indevido dentro da página.
       return text.replace(/[&<>"']/g, ch => ({
         '&': '&amp;',
         '<': '&lt;',
@@ -876,18 +879,23 @@
     }
 
     function highlight(text, terms) {
+      // Destaca no snippet os termos usados na consulta.
       const safeText = escapeHtml(text);
       if (!terms || !terms.length) return safeText;
+
+      // Escapa caracteres especiais dos termos antes de montar a expressão regular.
       const pattern = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
       return safeText.replace(new RegExp(pattern, 'gi'), m => `<mark>${m}</mark>`);
     }
 
     function rankClass(i) {
+      // Aplica estilos especiais aos três primeiros colocados.
       return ['rank-1', 'rank-2', 'rank-3'][i] ?? 'rank-n';
     }
 
     // ── States ────────────────────────────────────────────────
     function showSkeleton() {
+      // Mostra cartões temporários enquanto a busca está carregando.
       resultsArea.innerHTML = [1, 2, 3].map(() => `
       <div class="skeleton-card">
         <div><div class="skel skel-circle"></div></div>
@@ -900,6 +908,7 @@
     }
 
     function showEmpty(msg, icon = '◎') {
+      // Mostra mensagens de estado: tela inicial, erro ou busca sem resultados.
       resultsArea.innerHTML = `
       <div class="state-box">
         <span class="icon">${icon}</span>
@@ -908,10 +917,12 @@
     }
 
     function renderResults(data, rawQuery) {
+      // Trata respostas especiais antes de tentar montar os cartões de resultado.
       if (data.error) return showEmpty(data.error, '⚠');
       if (data.info) return showEmpty(data.info, '◎');
       if (!data.results.length) return showEmpty('Nenhum documento encontrado para essa busca.', '◎');
 
+      // Usa o maior score como base para normalizar a barra visual de relevância.
       const topScore = data.results[0].score;
       const terms = data.terms || [];
 
@@ -926,6 +937,7 @@
       </div>`;
 
       const cards = data.results.map((r, i) => {
+        // A porcentagem representa o score do item em relação ao melhor resultado.
         const pct = topScore > 0 ? Math.round((r.score / topScore) * 100) : 0;
         const snippet = r.snippet ? highlight(r.snippet, terms) : '';
         const cls = rankClass(i);
@@ -954,6 +966,7 @@
 
     // ── API calls ─────────────────────────────────────────────
     async function loadCollections(selectedPath = colSelect.value) {
+      // Busca no backend as coleções disponíveis para preencher o seletor.
       const res = await fetch('/api/collections');
       const list = await res.json();
       colSelect.innerHTML = '';
@@ -967,12 +980,15 @@
         opt.textContent = `${c.nome}  (${c.total} doc${c.total > 1 ? 's' : ''})`;
         colSelect.appendChild(opt);
       });
+
+      // Mantém selecionada a coleção anterior quando ela ainda existe.
       if (selectedPath && [...colSelect.options].some(opt => opt.value === selectedPath)) {
         colSelect.value = selectedPath;
       }
     }
 
     async function loadFiles() {
+      // Carrega a lista de arquivos da coleção atual e os arquivos da lixeira.
       const path = colSelect.value;
 
       if (!path) return;
@@ -984,6 +1000,7 @@
       trashList.innerHTML = '';
 
       data.files.forEach(file => {
+        // Renderiza cada documento com botão para mover para a lixeira.
         filesList.innerHTML += `
       <div class="file-row">
         <span>${escapeHtml(file)}</span>
@@ -995,6 +1012,7 @@
       });
 
       data.trash.forEach(file => {
+        // Renderiza cada item da lixeira com botão de restauração.
         trashList.innerHTML += `
       <div class="file-row">
         <span>${escapeHtml(file)}</span>
@@ -1007,6 +1025,7 @@
     }
 
     async function doSearch() {
+      // Envia a consulta para a API e renderiza o ranking retornado.
       const query = queryInput.value.trim();
       const path = colSelect.value;
       if (!query || !path) return;
@@ -1029,6 +1048,7 @@
     }
 
     async function doReindex() {
+      // Pede ao backend para reconstruir o índice da coleção selecionada.
       const path = colSelect.value;
       if (!path) return;
       reindexBtn.disabled = true;
@@ -1048,11 +1068,13 @@
     }
 
     function setUploadStatus(message, type = '') {
+      // Atualiza a mensagem exibida abaixo do campo de upload.
       uploadStatus.textContent = message;
       uploadStatus.className = `upload-status ${type}`.trim();
     }
 
     async function deleteFile(filename) {
+      // Move o arquivo para a lixeira no backend e atualiza a interface.
       const path = colSelect.value;
 
       await fetch('/api/delete', {
@@ -1071,6 +1093,7 @@
     }
 
     async function restoreFile(filename) {
+      // Restaura um arquivo da lixeira para a coleção padrão.
       await fetch('/api/restore', {
         method: 'POST',
         headers: {
@@ -1084,6 +1107,7 @@
     }
 
     async function doUpload() {
+      // Valida e envia um novo arquivo .txt para a coleção atual.
       const path = colSelect.value;
       const file = txtFileInput.files[0];
       if (!path) return setUploadStatus('Selecione uma coleção.', 'error');
@@ -1093,6 +1117,7 @@
       }
 
       const form = new FormData();
+      // FormData é usado porque o upload mistura texto simples e arquivo binário.
       form.append('collection_path', path);
       form.append('file', file);
 
@@ -1105,6 +1130,7 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Não foi possível inserir o arquivo.');
 
+        // Limpa o campo e recarrega os dados para refletir o novo documento.
         txtFileInput.value = '';
         setUploadStatus(`${data.filename} inserido com sucesso.`, 'ok');
         await loadCollections(path);
@@ -1118,6 +1144,7 @@
     }
 
     // ── Events ────────────────────────────────────────────────
+    // Conecta botões, teclado e seleção de coleção às funções da interface.
     searchBtn.addEventListener('click', doSearch);
     queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
     reindexBtn.addEventListener('click', doReindex);
@@ -1126,7 +1153,10 @@
     colSelect.addEventListener('change', loadFiles);
 
     // ── Init ──────────────────────────────────────────────────
+    // Estado inicial da tela antes da primeira busca.
     showEmpty('Digite uma consulta ao lado para começar.', '◈');
+
+    // Carrega coleções e, em seguida, arquivos da coleção selecionada.
     loadCollections().then(loadFiles);
   </script>
 </body>
