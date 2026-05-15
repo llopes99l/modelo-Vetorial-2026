@@ -1,3 +1,5 @@
+Alunos: Lucas Lopes, João Pedro, Richard Machado, Fabio
+
 # Documentação do Sistema de Busca Vetorial
 
 Sistema de recuperação de informação baseado no **Modelo Vetorial**, utilizando **TF-IDF** e **Similaridade do Cosseno**. Disponível em duas interfaces: web (Flask) e linha de comando (CLI).
